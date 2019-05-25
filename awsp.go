@@ -17,19 +17,19 @@ func main() {
 	}
 
 	credentialsPath := flag.String("credentials", path.Join(homeDir, ".aws/credentials"), "path to the AWS credentials file")
-	_ = flag.String("config", path.Join(homeDir, ".aws/config"), "path to the AWS config file")
-	proflie := flag.String("set", "", "profile to set as default")
+	profile := flag.String("use", "", "profile to set as default")
 
 	flag.Parse()
 
 	var err error
-	if *proflie != "" {
-		err = setProfile()
+	if *profile != "" {
+		// TODO: Update ~/.aws/config as well.
+		err = setProfile(*credentialsPath, *profile)
 	} else {
 		err = getProfiles(*credentialsPath)
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, err.Error())
+		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
 }
@@ -40,32 +40,84 @@ func getProfiles(credentialsPath string) error {
 		return err
 	}
 
-	defaultSec, err := cfg.GetSection("default") // not to be confused with DEFAULT which is top-level INI section
+	defaultKey, err := getValue(cfg, "default", "aws_access_key_id")
 	if err != nil {
 		return err
 	}
-	if !defaultSec.HasKey("aws_access_key_id") {
-		return fmt.Errorf("aws_access_key_id not found in \"default\" section of %s", credentialsPath)
-	}
 
-	defaultKey := defaultSec.Key("aws_access_key_id").Value()
-
-	for _, sec := range cfg.Sections() {
-		if sec.Name() == "DEFAULT" || sec.Name() == "default" {
+	for _, sec := range cfg.SectionStrings() {
+		if sec == "DEFAULT" || sec == "default" {
 			continue
 		}
-		key := sec.Key("aws_access_key_id").Value()
-		if key != "" && key == defaultKey {
-			fmt.Printf("* %s\n", sec.Name())
+
+		key, err := getValue(cfg, sec, "aws_access_key_id")
+		if err != nil {
+			fmt.Printf("Error: %s\n", err)
+			continue
+		}
+
+		if key == defaultKey {
+			fmt.Printf("* %s\n", sec)
 		} else {
-			fmt.Printf("  %s\n", sec.Name())
+			fmt.Printf("  %s\n", sec)
 		}
 	}
 
 	return nil
 }
 
-func setProfile() error {
-	fmt.Println("setProfile()")
+func setProfile(credentialsPath, profile string) error {
+	cfg, err := ini.Load(credentialsPath)
+	if err != nil {
+		return err
+	}
+
+	for _, key := range []string{"aws_access_key_id", "aws_secret_access_key"} {
+		value, err := getValue(cfg, profile, key)
+		if err != nil {
+			return err
+		}
+
+		err = setValue(cfg, "default", key, value)
+		if err != nil {
+			return err
+		}
+	}
+
+	err = cfg.SaveTo(credentialsPath)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("switched to profile %s\n", profile)
+
+	return nil
+}
+
+func getValue(cfg *ini.File, section, key string) (string, error) {
+	sec, err := cfg.GetSection(section)
+	if err != nil {
+		return "", err
+	}
+
+	if !sec.HasKey(key) {
+		return "", fmt.Errorf("%s not found in section \"%s\"", key, section)
+	}
+
+	value := sec.Key(key).Value()
+	if value == "" {
+		return "", fmt.Errorf("%s empty in section \"%s\"", key, section)
+	}
+
+	return value, nil
+}
+
+func setValue(cfg *ini.File, section, key, value string) error {
+	sec, err := cfg.GetSection("default")
+	if err != nil {
+		return err
+	}
+
+	sec.Key(key).SetValue(value)
 	return nil
 }
