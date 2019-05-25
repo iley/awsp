@@ -17,17 +17,18 @@ func main() {
 	}
 
 	credentialsPath := flag.String("credentials", path.Join(homeDir, ".aws/credentials"), "path to the AWS credentials file")
-	profile := flag.String("use", "", "profile to set as default")
 
 	flag.Parse()
 
 	var err error
-	if *profile != "" {
-		// TODO: Update ~/.aws/config as well.
-		err = setProfile(*credentialsPath, *profile)
-	} else {
+	if len(flag.Args()) == 0 {
 		err = getProfiles(*credentialsPath)
+	} else {
+		// TODO: Update ~/.aws/config as well.
+		profile := flag.Args()[0]
+		err = setProfile(*credentialsPath, profile)
 	}
+
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
