@@ -10,6 +10,12 @@ import (
 	"gopkg.in/ini.v1"
 )
 
+const (
+	AccessKeyId     = "aws_access_key_id"
+	SecretAccessKey = "aws_secret_access_key"
+	DefaultProfile  = "default"
+)
+
 func main() {
 	homeDir := os.Getenv("HOME")
 	if homeDir == "" {
@@ -22,7 +28,7 @@ func main() {
 
 	var err error
 	if len(flag.Args()) == 0 {
-		err = getProfiles(*credentialsPath)
+		err = printProfiles(*credentialsPath)
 	} else {
 		// TODO: Update ~/.aws/config as well.
 		profile := flag.Args()[0]
@@ -35,25 +41,21 @@ func main() {
 	}
 }
 
-func getProfiles(credentialsPath string) error {
+func printProfiles(credentialsPath string) error {
 	cfg, err := ini.Load(credentialsPath)
 	if err != nil {
 		return err
 	}
 
-	defaultKey, err := getValue(cfg, "default", "aws_access_key_id")
+	defaultKey, err := getValue(cfg, DefaultProfile, AccessKeyId)
 	if err != nil {
 		return err
 	}
 
-	for _, sec := range cfg.SectionStrings() {
-		if sec == "DEFAULT" || sec == "default" {
-			continue
-		}
-
-		key, err := getValue(cfg, sec, "aws_access_key_id")
+	for _, sec := range getProfiles(cfg) {
+		key, err := getValue(cfg, sec, AccessKeyId)
 		if err != nil {
-			fmt.Printf("Error: %s\n", err)
+			log.Printf("error reading profile %v: %v", sec, err)
 			continue
 		}
 
@@ -73,16 +75,14 @@ func setProfile(credentialsPath, profile string) error {
 		return err
 	}
 
-	for _, key := range []string{"aws_access_key_id", "aws_secret_access_key"} {
-		value, err := getValue(cfg, profile, key)
-		if err != nil {
-			return err
-		}
+	err = saveDefaultProfile(cfg)
+	if err != nil {
+		return err
+	}
 
-		err = setValue(cfg, "default", key, value)
-		if err != nil {
-			return err
-		}
+	err = copyCredentials(cfg, profile, DefaultProfile)
+	if err != nil {
+		return err
 	}
 
 	err = cfg.SaveTo(credentialsPath)
@@ -91,6 +91,53 @@ func setProfile(credentialsPath, profile string) error {
 	}
 
 	fmt.Printf("switched to profile %s\n", profile)
+
+	return nil
+}
+
+func saveDefaultProfile(cfg *ini.File) error {
+	defaultKey, err := getValue(cfg, DefaultProfile, AccessKeyId)
+	if err != nil {
+		return err
+	}
+
+	// Check if the default credentials are stored in a named profile.
+	found := false
+	for _, sec := range getProfiles(cfg) {
+		key, err := getValue(cfg, sec, AccessKeyId)
+		if err != nil {
+			log.Printf("error reading profile %v: %v", sec, err)
+			continue
+		}
+		if defaultKey == key {
+			found = true
+			break
+		}
+	}
+
+	if found {
+		return nil
+	}
+
+	// Create a new profile named "profileX".
+	for i := 1; ; i++ {
+		newProfile := fmt.Sprintf("profile%d", i)
+		// Check if profile already exists.
+		_, err := cfg.GetSection(newProfile)
+		if err != nil {
+			_, err := cfg.NewSection(newProfile)
+			if err != nil {
+				return err
+			}
+
+			err = copyCredentials(cfg, DefaultProfile, newProfile)
+			if err != nil {
+				return err
+			}
+			fmt.Printf("saved default credentials as profile %s\n", newProfile)
+			break
+		}
+	}
 
 	return nil
 }
@@ -113,12 +160,38 @@ func getValue(cfg *ini.File, section, key string) (string, error) {
 	return value, nil
 }
 
-func setValue(cfg *ini.File, section, key, value string) error {
-	sec, err := cfg.GetSection("default")
+func setValue(cfg *ini.File, profile, key, value string) error {
+	sec, err := cfg.GetSection(profile)
 	if err != nil {
 		return err
 	}
 
 	sec.Key(key).SetValue(value)
+	return nil
+}
+
+func getProfiles(cfg *ini.File) []string {
+	allSections := cfg.SectionStrings()
+	sections := []string{}
+	for _, sec := range allSections {
+		if sec != ini.DEFAULT_SECTION && sec != DefaultProfile {
+			sections = append(sections, sec)
+		}
+	}
+	return sections
+}
+
+func copyCredentials(cfg *ini.File, fromProfile, toProfile string) error {
+	for _, key := range []string{AccessKeyId, SecretAccessKey} {
+		value, err := getValue(cfg, fromProfile, key)
+		if err != nil {
+			return err
+		}
+
+		err = setValue(cfg, toProfile, key, value)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
