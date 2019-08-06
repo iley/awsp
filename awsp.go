@@ -23,12 +23,13 @@ func main() {
 	}
 
 	credentialsPath := flag.String("credentials", path.Join(homeDir, ".aws/credentials"), "path to the AWS credentials file")
+	quiet := flag.Bool("q", false, "only display environment names")
 
 	flag.Parse()
 
 	var err error
 	if len(flag.Args()) == 0 {
-		err = printProfiles(*credentialsPath)
+		err = printProfiles(*credentialsPath, *quiet)
 	} else {
 		// TODO: Update ~/.aws/config as well.
 		profile := flag.Args()[0]
@@ -41,7 +42,7 @@ func main() {
 	}
 }
 
-func printProfiles(credentialsPath string) error {
+func printProfiles(credentialsPath string, namesOnly bool) error {
 	cfg, err := ini.Load(credentialsPath)
 	if err != nil {
 		return err
@@ -59,10 +60,14 @@ func printProfiles(credentialsPath string) error {
 			continue
 		}
 
-		if key == defaultKey {
-			fmt.Printf("* %s\n", sec)
+		if namesOnly {
+			fmt.Println(sec)
 		} else {
-			fmt.Printf("  %s\n", sec)
+			if key == defaultKey {
+				fmt.Printf("* %s\n", sec)
+			} else {
+				fmt.Printf("  %s\n", sec)
+			}
 		}
 	}
 
