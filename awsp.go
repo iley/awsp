@@ -13,6 +13,7 @@ import (
 const (
 	AccessKeyId     = "aws_access_key_id"
 	SecretAccessKey = "aws_secret_access_key"
+	SessionToken    = "aws_session_token"
 	DefaultProfile  = "default"
 )
 
@@ -187,10 +188,11 @@ func getProfiles(cfg *ini.File) []string {
 }
 
 func copyCredentials(cfg *ini.File, fromProfile, toProfile string) error {
-	for _, key := range []string{AccessKeyId, SecretAccessKey} {
+	for _, key := range []string{AccessKeyId, SecretAccessKey, SessionToken} {
 		value, err := getValue(cfg, fromProfile, key)
 		if err != nil {
-			return err
+			log.Printf("Error reading value %v from profile %v: %v", key, fromProfile, err)
+			continue
 		}
 
 		err = setValue(cfg, toProfile, key, value)
